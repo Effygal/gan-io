@@ -1,20 +1,23 @@
+# src/data_preprocessing.py
+
 import numpy as np
+from sklearn.preprocessing import MinMaxScaler
 
-def preprocess_trace(input_file):
+def load_and_normalize_trace(trace_path):
+    # 1. Load data
     data = []
-    with open(input_file, 'r') as f:
+    with open(trace_path, 'r') as f:
         for line in f:
+            # Each line: e.g. "2 7561692514266 28 512 206848 142"
             parts = line.strip().split()
-            if len(parts) < 4:
-                continue
-            t, op, addr, size = float(parts[0]), parts[1], int(parts[2]), int(parts[3])
-            op = 0.0 if op.upper() == 'R' else 1.0
-            data.append([t, op, addr, size])
-    data = np.array(data)
-    min_vals = data.min(axis=0)
-    max_vals = data.max(axis=0)
-    normalized = (data - min_vals) / (max_vals - min_vals + 1e-6)
-    return normalized, min_vals, max_vals
+            # Convert strings -> floats
+            values = list(map(float, parts))
+            data.append(values)
 
-def denormalize_trace(data, min_vals, max_vals):
-    return data * (max_vals - min_vals + 1e-6) + min_vals
+    data = np.array(data)  # shape: (num_samples, num_features)
+
+    # 2. Fit scaler
+    scaler = MinMaxScaler()
+    data_normalized = scaler.fit_transform(data)  # in [0,1]
+
+    return data_normalized, scaler
