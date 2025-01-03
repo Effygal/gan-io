@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import MinMaxScaler
+import random
 
 ###############################################################################
 # 1. ARGUMENT PARSING
@@ -51,6 +52,8 @@ def parse_args():
                         help='How many times to train the Discriminator per iteration.')
     parser.add_argument('--g_updates', type=int, default=2,
                         help='How many times to train the Generator per iteration.')
+    parser.add_argument('--seed', type=int, default=77,
+                        help='Random seed for reproducibility.')
 
     return parser.parse_args()
 
@@ -64,38 +67,23 @@ def load_and_scale_data(trace_path, max_lines=None):
             if max_lines is not None and i >= max_lines:
                 break
 
-            # parts = line.strip().split()
-            # if len(parts) < 6:
-            #     continue
-
-            parts = line.strip().split(',')
-            if len(parts) < 5:
+            parts = line.strip().split()
+            if len(parts) < 6:
                 continue
-            
-            # for cloud physics traces
-            # timestamp = float(parts[1])
-            # length    = float(parts[3])
-            # lba       = float(parts[4])
-            # latency   = float(parts[5])
 
-            #for alibaba traces:
-            latency = float(parts[0])  
-            length = float(parts[3])    
-            lba = float(parts[2])       
-            timestamp = float(parts[4]) 
+            timestamp = float(parts[1])
+            length    = float(parts[3])
+            lba       = float(parts[4])
+            latency   = float(parts[5])
             rows.append([timestamp, length, lba, latency])
 
     data_2d = np.array(rows, dtype=np.float32)  # shape (N, 4)
 
     # Separate columns
-    # timestamps = data_2d[:, 0].reshape(-1, 1)
-    # lengths    = data_2d[:, 1].reshape(-1, 1)
-    # lbas       = data_2d[:, 2].reshape(-1, 1)
-    # latencies  = data_2d[:, 3].reshape(-1, 1)
     timestamps = data_2d[:, 0].reshape(-1, 1)
-    lengths = data_2d[:, 1].reshape(-1, 1)
-    lbas = data_2d[:, 2].reshape(-1, 1)
-    latencies = data_2d[:, 3].reshape(-1, 1)
+    lengths    = data_2d[:, 1].reshape(-1, 1)
+    lbas       = data_2d[:, 2].reshape(-1, 1)
+    latencies  = data_2d[:, 3].reshape(-1, 1)
 
     # Fit a separate MinMaxScaler per column with feature_range=(-1,1)
     ts_scaler     = MinMaxScaler(feature_range=(-1,1))
@@ -290,7 +278,6 @@ def generate_synthetic(gen, scalers, output_path, device, latent_dim, seq_len, n
     all_fakes = np.concatenate(all_fakes, axis=0)
     all_fakes = all_fakes[:num_entries]
 
-    # Write to file
     with open(output_path, 'w') as f:
         for row in all_fakes:
             out_str = ' '.join(str(int(x)) for x in row)
@@ -304,7 +291,15 @@ def generate_synthetic(gen, scalers, output_path, device, latent_dim, seq_len, n
 def main():
     args = parse_args()
 
-    # Load & scale to [-1,1]
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     data_scaled, scalers = load_and_scale_data(args.trace_path, max_lines=args.max_lines)
     print(f"Loaded {data_scaled.shape[0]} lines from {args.trace_path} (max_lines={args.max_lines}).")
 
@@ -345,15 +340,15 @@ def main():
     )
 
     # Generate
-    generate_synthetic(
-        gen=gen,
-        scalers=scalers,
-        output_path=args.output_synth,
-        device=device,
-        latent_dim=args.latent_dim,
-        seq_len=args.seq_len,
-        num_entries=args.num_entries
-    )
+    # generate_synthetic(
+    #     gen=gen,
+    #     scalers=scalers,
+    #     output_path=args.output_synth,
+    #     device=device,
+    #     latent_dim=args.latent_dim,
+    #     seq_len=args.seq_len,
+    #     num_entries=args.num_entries
+    # )
 
     print("Done.")
 
