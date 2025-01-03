@@ -1,42 +1,78 @@
-import torch
-from torch.utils.data import DataLoader, TensorDataset
-from torch.optim import Adam
-from models import LSTMGenerator, LSTMDiscriminator
-from preprocess import preprocess_trace, denormalize_trace
+###############################################################################
+# 5. TRAINING LOOP
+###############################################################################
+def train_gan(gen, disc, dataloader, device, latent_dim, seq_len,
+              lrG, lrD, num_epochs, d_updates=1, g_updates=1):
+    """
+    Allows separate LR for G and D, plus user-specified d_updates/g_updates ratio.
+    """
+    criterion = nn.BCEWithLogitsLoss()
+    optimizerG = optim.Adam(gen.parameters(), lr=lrG, betas=(0.5, 0.999))
+    optimizerD = optim.Adam(disc.parameters(), lr=lrD, betas=(0.5, 0.999))
 
-def train_gan(config):
-    data, min_vals, max_vals = preprocess_trace(config['data']['input_file'])
-    dataset = TensorDataset(torch.tensor(data, dtype=torch.float))
-    loader = DataLoader(dataset, batch_size=config['training']['batch_size'], shuffle=True)
+    for epoch in range(num_epochs):
+        d_loss_sum = 0.0
+        g_loss_sum = 0.0
+        count_steps = 0
 
-    G = LSTMGenerator(config['model']['latent_dim'], data.shape[1], config['model']['generator_hidden_dim']).cuda()
-    D = LSTMDiscriminator(data.shape[1], config['model']['discriminator_hidden_dim']).cuda()
+        for real_data in dataloader:
+            real_data = real_data.to(device, dtype=torch.float)
+            batch_size = real_data.size(0)
 
-    optimizer_G = Adam(G.parameters(), lr=config['training']['learning_rate'], betas=(config['training']['beta1'], 0.999))
-    optimizer_D = Adam(D.parameters(), lr=config['training']['learning_rate'], betas=(config['training']['beta1'], 0.999))
-    criterion = torch.nn.BCELoss()
+            # Prepare real/fake labels
+            real_labels = torch.ones(batch_size, 1, device=device)
+            fake_labels = torch.zeros(batch_size, 1, device=device)
 
-    for epoch in range(config['training']['epochs']):
-        for batch in loader:
-            real_data = batch[0].cuda()
-            bs = real_data.size(0)
-            valid = torch.ones(bs, 1).cuda()
-            fake = torch.zeros(bs, 1).cuda()
+            #=============================
+            # (1) Train Discriminator (d_updates times)
+            #=============================
+            d_loss_current = 0.0
+            for _ in range(d_updates):
+                optimizerD.zero_grad()
 
-            z = torch.randn(bs, config['model']['sequence_length'], config['model']['latent_dim']).cuda()
-            fake_data = G(z)
+                # Real data forward
+                d_out_real = disc(real_data)
+                d_loss_real = criterion(d_out_real, real_labels)
 
-            optimizer_D.zero_grad()
-            real_loss = criterion(D(real_data), valid)
-            fake_loss = criterion(D(fake_data.detach()), fake)
-            loss_D = real_loss + fake_loss
-            loss_D.backward()
-            optimizer_D.step()
+                # Fake data forward
+                z = torch.randn(batch_size, seq_len, latent_dim, device=device)
+                fake_data = gen(z).detach()  # don't backprop through G
+                d_out_fake = disc(fake_data)
+                d_loss_fake = criterion(d_out_fake, fake_labels)
 
-            optimizer_G.zero_grad()
-            loss_G = criterion(D(fake_data), valid)
-            loss_G.backward()
-            optimizer_G.step()
+                d_loss = d_loss_real + d_loss_fake
+                d_loss.backward()
+                optimizerD.step()
 
-    torch.save(G.state_dict(), "generator.pth")
-    return G, min_vals, max_vals
+                d_loss_current += d_loss.item()
+
+            #=============================
+            # (2) Train Generator (g_updates times)
+            #=============================
+            g_loss_current = 0.0
+            for _ in range(g_updates):
+                optimizerG.zero_grad()
+
+                z = torch.randn(batch_size, seq_len, latent_dim, device=device)
+                fake_data = gen(z)
+                d_out_fake_for_g = disc(fake_data)
+                g_loss = criterion(d_out_fake_for_g, real_labels)
+                g_loss.backward()
+                optimizerG.step()
+
+                g_loss_current += g_loss.item()
+
+            # Log average losses for this iteration
+            d_loss_sum += d_loss_current / d_updates
+            g_loss_sum += g_loss_current / g_updates
+            count_steps += 1
+
+        # Print epoch stats
+        print(f"[Epoch {epoch+1}/{num_epochs}] "
+              f"D Loss: {d_loss_sum/count_steps:.4f} | "
+              f"G Loss: {g_loss_sum/count_steps:.4f}")
+        
+        # if epoch >= num_epochs // 2 and g_loss_sum/count_steps > 1.0:
+        #     break
+
+    return gen, disc, d_loss_sum/count_steps, g_loss_sum/count_steps
