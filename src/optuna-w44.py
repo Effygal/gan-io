@@ -8,18 +8,18 @@ SEED = 77
 
 def objective(trial):
     lrG = trial.suggest_float("lrG", 5e-5, 5e-4, log=True)
-    lrD = trial.suggest_float("lrD", 1e-4, 5e-4, log=True)
-    d_updates = trial.suggest_int("d_updates", 2, 3)
-    g_updates = trial.suggest_int("g_updates", 1, 2)
+    lrD = trial.suggest_float("lrD", 5e-5, 5e-4, log=True)
+    d_updates = trial.suggest_int("d_updates", 1, 3)
+    g_updates = trial.suggest_int("g_updates", 1, 3)
     hidden_dim = trial.suggest_int("hidden_dim", 100, 128, log=True)
     batch_size = trial.suggest_categorical("batch_size", [64, 128])
 
     cmd = [
-        "python", "main.py",
-        # "--trace_path", "../traces/w44_r.txt",
-        "--trace_path", "../traces/volume766-orig.txt",
-        # "--output_synth", "../traces/w44-gan-synth.txt",
-        "--output_synth", "../traces/volume766-gan-synth.txt",
+        "python", "main-early-stop.py",
+        "--trace_path", "../traces/w44_r.txt",
+        # "--trace_path", "../traces/volume766-orig.txt",
+        "--output_synth", "../traces/w44-gan-synth.txt",
+        # "--output_synth", "../traces/volume766-gan-synth.txt",
         "--device", "mps",
         "--batch_size", str(batch_size),
         "--num_epochs", "50",   
@@ -29,7 +29,7 @@ def objective(trial):
         "--lrD", str(lrD),
         "--d_updates", str(d_updates),
         "--g_updates", str(g_updates),
-        "--seq_len", "12",
+        "--seq_len", "20",
         # "--max_lines", "11368248"
         "--max_lines", "99878"
     ]
@@ -52,12 +52,8 @@ def objective(trial):
         if line.startswith("[Epoch "):
             final_line = line
 
-    if not final_line:
-        print("ERROR: no epoch lines found in stdout!")
-        print("Full stdout:\n", result.stdout)
-        return (9999.0, 9999.0)
-
     match = re.search(r"D Loss:\s*([0-9\.]+)\s*\|\s*G Loss:\s*([0-9\.]+)", final_line)
+
     if not match:
         print("ERROR: final line not in expected format!")
         print("Final line:", final_line)
@@ -82,7 +78,7 @@ study = optuna.create_study(
     directions=["minimize", "minimize"],
     sampler=optuna.samplers.TPESampler(seed=SEED)
 )
-study.optimize(objective, n_trials=50)
+study.optimize(objective, n_trials=500)
 
 print("\n======= Search Finished =========")
 print("Number of Pareto solutions:", len(study.best_trials))
