@@ -120,129 +120,28 @@ for i, t in enumerate(study.best_trials):
     print(f"Solution #{i}: values={t.values}, params={t.params}")
 
 # %%
-import os
-import itertools
-import numpy as np
-import torch
-from sklearn.model_selection import ParameterGrid
-from sklearn.utils import shuffle
-
-# Reuse components from your GAN implementation
-from main import *
-
-# Define hyperparameter ranges
-param_grid = {
-    'lrG': [1e-4, 3e-4, 5e-4],
-    'lrD': [1e-4, 3e-4, 5e-4],
-    'latent_dim': [16],
-    'hidden_dim': [64],
-    'seq_len': [12],
-    'batch_size': [64, 128],
-    'd_updates': [1, 2],
-    'g_updates': [2, 3],
-}
-# param_grid = {
-#     'lrG': [1e-4],
-#     'lrD': [1e-4],
-#     'latent_dim': [8],
-#     'hidden_dim': [64],
-#     'seq_len': [8],
-#     'batch_size': [64],
-#     'd_updates': [1],
-#     'g_updates': [1],
-# }
-
-def hyperparameter_exploration(trace_path, max_lines, num_epochs, device, sample_size=100000):
-    data_scaled, scalers = load_and_scale_data(trace_path, max_lines=max_lines)
-    print(f"Loaded {data_scaled.shape[0]} lines for hyperparameter tuning.")
-    data_scaled = shuffle(data_scaled, random_state=42)[:sample_size]
-
-    best_config = None
-    best_g_loss = float('inf')
-
-    for params in ParameterGrid(param_grid):
-        print(f"Testing configuration: {params}")
-        dataset = TraceSeqDataset(data_scaled, seq_len=params['seq_len'])
-        if len(dataset) == 0:
-            print("Insufficient data for this configuration.")
-            continue
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=params['batch_size'], shuffle=True)
-
-        gen = LSTMGenerator(
-            latent_dim=params['latent_dim'],
-            hidden_dim=params['hidden_dim'],
-            seq_len=params['seq_len']
-        ).to(device)
-
-        disc = LSTMDiscriminator(
-            input_dim=4,
-            hidden_dim=params['hidden_dim']
-        ).to(device)
-
-        try:
-            gen, disc, final_g_loss, final_d_loss = train_gan(
-                gen=gen,
-                disc=disc,
-                dataloader=dataloader,
-                device=device,
-                latent_dim=params['latent_dim'],
-                seq_len=params['seq_len'],
-                lrG=params['lrG'],
-                lrD=params['lrD'],
-                num_epochs=num_epochs,
-                d_updates=params['d_updates'],
-                g_updates=params['g_updates']
-            )
-        except Exception as e:
-            print(f"Error training with params {params}: {e}")
-            continue
-
-        print(f"Final G Loss: {final_g_loss:.4f}, D Loss: {final_d_loss:.4f}")
-
-        if abs(final_d_loss - 0.5) < 0.1 and final_g_loss < best_g_loss:
-            best_g_loss = final_g_loss
-            best_config = params
-            print("New best configuration found!")
-
-    print("Hyperparameter exploration completed.")
-    print(f"Best configuration: {best_config}")
-    print(f"Best G Loss: {best_g_loss:.4f}")
-    return best_config
-
-trace_path = "../traces/w44_r.txt"
-device = "mps"
-best_params = hyperparameter_exploration(
-    trace_path=trace_path,
-    max_lines=100000,
-    num_epochs=30,  # Keep it lower for tuning
-    device=device
-)
-print(f"Best params: {best_params}")
-
-# %%
 import numpy as np
 
 def read_trace_original(path):
-    """
-    Reads the original trace file and extracts columns:
-      [1, 3, 4, 5] = [Timestamp, Length, LBA, Latency].
-    Returns a NumPy array of shape (N, 4).
-    """
     data = []
     with open(path, 'r') as f:
         for line in f:
-            parts = line.strip().split()
-            if len(parts) < 6:
+            parts = line.strip().split(',')
+            if len(parts) < 5:
                 continue  # skip malformed lines
             # columns are 0-based indexing in Python:
             # parts[1] -> Timestamp
             # parts[3] -> Length
             # parts[4] -> LBA
             # parts[5] -> Latency
-            timestamp = float(parts[1])
+            # timestamp = float(parts[1])
+            # length    = float(parts[3])
+            # lba       = float(parts[4])
+            # latency   = float(parts[5])
+            timestamp = float(parts[4])
             length    = float(parts[3])
-            lba       = float(parts[4])
-            latency   = float(parts[5])
+            lba       = float(parts[2])
+            latency   = float(parts[0])
             data.append([timestamp, length, lba, latency])
     return np.array(data, dtype=np.float64)
 
@@ -282,11 +181,6 @@ def mmd_unbiased(X, Y, sigma=1.0):
     return mmd2
 
 def compute_mmd_subsample(orig_path, synth_path, sigma=1.0, max_samples=10000):
-    """
-    1. Reads the original and synthetic traces
-    2. Subsamples both sets to 'max_samples' rows (or fewer if smaller)
-    3. Computes MMD^2 (unbiased) and returns (MMD^2, MMD).
-    """
     X = read_trace_original(orig_path)
     Y = read_trace_synthetic(synth_path)
 
@@ -300,9 +194,10 @@ def compute_mmd_subsample(orig_path, synth_path, sigma=1.0, max_samples=10000):
     mmd2 = mmd_unbiased(X, Y, sigma=sigma)
     return mmd2, np.sqrt(mmd2)
 
-orig_path = "../traces/w44_r.txt"
+# orig_path = "../traces/w44_r.txt"
+orig_path = "../traces/volume766-orig.txt"
 # synth_path = "../traces/w44_r_synth.txt"
-
+synth_path = "../traces/volume766-gan-synth.txt"
 
 sigma_val = 1e6
 max_samples = 10000

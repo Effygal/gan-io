@@ -8,6 +8,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import MinMaxScaler
 import random
+import os
 
 ###############################################################################
 # 1. ARGUMENT PARSING
@@ -15,7 +16,6 @@ import random
 def parse_args():
     parser = argparse.ArgumentParser(description="Multi-step LSTM-based GAN with [-1,1] scaling and flexible hyperparams.")
 
-    # Required
     parser.add_argument('--trace_path', type=str, required=True,
                         help='Path to the original trace file.')
     parser.add_argument('--output_synth', type=str, default='synth.txt',
@@ -23,7 +23,6 @@ def parse_args():
     parser.add_argument('--device', type=str, default='cpu',
                         help='Device to use: cpu, cuda, mps, etc.')
 
-    # Data & model
     parser.add_argument('--max_lines', type=int, default=None,
                         help='If set, only read this many lines from the trace file.')
     parser.add_argument('--seq_len', type=int, default=12,
@@ -35,25 +34,26 @@ def parse_args():
     parser.add_argument('--num_entries', type=int, default=100000,
                         help='Number of synthetic rows to generate.')
 
-    # Training
     parser.add_argument('--batch_size', type=int, default=128,
                         help='Training batch size.')
     parser.add_argument('--num_epochs', type=int, default=100,
                         help='Number of training epochs.')
 
-    # Separate LR for G and D
     parser.add_argument('--lrG', type=float, default=3e-4,
                         help='Learning rate for Generator.')
     parser.add_argument('--lrD', type=float, default=3e-4,
                         help='Learning rate for Discriminator.')
 
-    # G:D ratio
     parser.add_argument('--d_updates', type=int, default=1,
                         help='How many times to train the Discriminator per iteration.')
     parser.add_argument('--g_updates', type=int, default=2,
                         help='How many times to train the Generator per iteration.')
     parser.add_argument('--seed', type=int, default=77,
                         help='Random seed for reproducibility.')
+    parser.add_argument('--save_dir', type=str, default='./models/',
+                        help='Directory to save the trained models.')
+    parser.add_argument('--save_prefix', type=str, default='model',
+                        help='Prefix for the saved model files.')
 
     return parser.parse_args()
 
@@ -70,22 +70,29 @@ def load_and_scale_data(trace_path, max_lines=None):
             parts = line.strip().split()
             if len(parts) < 6:
                 continue
-
             timestamp = float(parts[1])
             length    = float(parts[3])
             lba       = float(parts[4])
             latency   = float(parts[5])
+
+            # for alibaba trace
+            # parts = line.strip().split(',')
+            # if len(parts) < 5:
+            #     continue
+            # latency = float(parts[0])  
+            # length = float(parts[3])    
+            # lba = float(parts[2])      
+            # timestamp = float(parts[4])
+
             rows.append([timestamp, length, lba, latency])
 
     data_2d = np.array(rows, dtype=np.float32)  # shape (N, 4)
 
-    # Separate columns
     timestamps = data_2d[:, 0].reshape(-1, 1)
     lengths    = data_2d[:, 1].reshape(-1, 1)
     lbas       = data_2d[:, 2].reshape(-1, 1)
     latencies  = data_2d[:, 3].reshape(-1, 1)
 
-    # Fit a separate MinMaxScaler per column with feature_range=(-1,1)
     ts_scaler     = MinMaxScaler(feature_range=(-1,1))
     length_scaler = MinMaxScaler(feature_range=(-1,1))
     lba_scaler    = MinMaxScaler(feature_range=(-1,1))
@@ -96,7 +103,6 @@ def load_and_scale_data(trace_path, max_lines=None):
     lba_scaled    = lba_scaler.fit_transform(lbas)
     lat_scaled    = lat_scaler.fit_transform(latencies)
 
-    # Combine scaled columns
     data_scaled = np.hstack([ts_scaled, length_scaled, lba_scaled, lat_scaled])
 
     scalers = (ts_scaler, length_scaler, lba_scaler, lat_scaler)
@@ -106,10 +112,7 @@ def load_and_scale_data(trace_path, max_lines=None):
 # 3. CHUNK DATA INTO MULTI-STEP SEQUENCES
 ###############################################################################
 class TraceSeqDataset(Dataset):
-    """
-    Splits the entire (N,4) array into non-overlapping chunks of shape (seq_len, 4).
-    If N is not divisible by seq_len, we drop the remainder.
-    """
+    
     def __init__(self, data_2d, seq_len=8):
         self.seq_len = seq_len
         self.data = data_2d
@@ -163,9 +166,7 @@ class LSTMDiscriminator(nn.Module):
 ###############################################################################
 def train_gan(gen, disc, dataloader, device, latent_dim, seq_len,
               lrG, lrD, num_epochs, d_updates=1, g_updates=1):
-    """
-    Allows separate LR for G and D, plus user-specified d_updates/g_updates ratio.
-    """
+    
     criterion = nn.BCEWithLogitsLoss()
     optimizerG = optim.Adam(gen.parameters(), lr=lrG, betas=(0.5, 0.999))
     optimizerD = optim.Adam(disc.parameters(), lr=lrD, betas=(0.5, 0.999))
@@ -179,7 +180,6 @@ def train_gan(gen, disc, dataloader, device, latent_dim, seq_len,
             real_data = real_data.to(device, dtype=torch.float)
             batch_size = real_data.size(0)
 
-            # Prepare real/fake labels
             real_labels = torch.ones(batch_size, 1, device=device)
             fake_labels = torch.zeros(batch_size, 1, device=device)
 
@@ -190,11 +190,9 @@ def train_gan(gen, disc, dataloader, device, latent_dim, seq_len,
             for _ in range(d_updates):
                 optimizerD.zero_grad()
 
-                # Real data forward
                 d_out_real = disc(real_data)
                 d_loss_real = criterion(d_out_real, real_labels)
 
-                # Fake data forward
                 z = torch.randn(batch_size, seq_len, latent_dim, device=device)
                 fake_data = gen(z).detach()  # don't backprop through G
                 d_out_fake = disc(fake_data)
@@ -222,18 +220,14 @@ def train_gan(gen, disc, dataloader, device, latent_dim, seq_len,
 
                 g_loss_current += g_loss.item()
 
-            # Log average losses for this iteration
             d_loss_sum += d_loss_current / d_updates
             g_loss_sum += g_loss_current / g_updates
             count_steps += 1
 
-        # Print epoch stats
         print(f"[Epoch {epoch+1}/{num_epochs}] "
               f"D Loss: {d_loss_sum/count_steps:.4f} | "
               f"G Loss: {g_loss_sum/count_steps:.4f}")
         
-        # if epoch >= num_epochs // 2 and g_loss_sum/count_steps > 1.0:
-        #     break
 
     return gen, disc, d_loss_sum/count_steps, g_loss_sum/count_steps
 
@@ -257,10 +251,8 @@ def generate_synthetic(gen, scalers, output_path, device, latent_dim, seq_len, n
             z = torch.randn(current_bs, seq_len, latent_dim, device=device)
             fake_seq = gen(z).cpu().numpy()  # (current_bs, seq_len, 4)
 
-            # Flatten for inverse scaling
             fake_seq_2d = fake_seq.reshape(-1, 4)
 
-            # columns
             fake_ts   = fake_seq_2d[:, [0]]
             fake_len  = fake_seq_2d[:, [1]]
             fake_lba  = fake_seq_2d[:, [2]]
@@ -290,7 +282,7 @@ def generate_synthetic(gen, scalers, output_path, device, latent_dim, seq_len, n
 ###############################################################################
 def main():
     args = parse_args()
-
+    
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -300,10 +292,10 @@ def main():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+    os.makedirs(args.save_dir, exist_ok=True)
     data_scaled, scalers = load_and_scale_data(args.trace_path, max_lines=args.max_lines)
     print(f"Loaded {data_scaled.shape[0]} lines from {args.trace_path} (max_lines={args.max_lines}).")
 
-    # Create multi-step dataset
     dataset = TraceSeqDataset(data_scaled, seq_len=args.seq_len)
     if len(dataset) == 0:
         raise ValueError("Not enough data to form any sequence. Try smaller seq_len or larger data file.")
@@ -311,7 +303,6 @@ def main():
 
     device = torch.device(args.device)
 
-    # Build models
     gen = LSTMGenerator(
         latent_dim=args.latent_dim,
         hidden_dim=args.hidden_dim,
@@ -324,8 +315,7 @@ def main():
         hidden_dim=args.hidden_dim
     ).to(device)
 
-    # Train
-    gen, disc, dloss, gloss = train_gan(
+    gen, disc, _, _ = train_gan(
         gen=gen,
         disc=disc,
         dataloader=dataloader,
@@ -338,8 +328,11 @@ def main():
         d_updates=args.d_updates,
         g_updates=args.g_updates
     )
+    # gen_save_path = os.path.join(args.save_dir, f"{args.save_prefix}_generator.pth")
+    # disc_save_path = os.path.join(args.save_dir, f"{args.save_prefix}_discriminator.pth")
+    # torch.save(gen.state_dict(), gen_save_path)
+    # torch.save(disc.state_dict(), disc_save_path)
 
-    # Generate
     # generate_synthetic(
     #     gen=gen,
     #     scalers=scalers,
