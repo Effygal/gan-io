@@ -3,8 +3,14 @@
 import optuna
 import subprocess
 import re
+import argparse
 
 SEED = 77
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--storage", type=str, required=True)
+parser.add_argument("--study-name", type=str, required=True)
+args = parser.parse_args()
 
 def objective(trial):
     lrG = trial.suggest_float("lrG", 5e-5, 5e-4, log=True)
@@ -20,7 +26,7 @@ def objective(trial):
         # "--trace_path", "../traces/volume766-orig.txt",
         "--output_synth", "../traces/w44-gan-synth.txt",
         # "--output_synth", "../traces/volume766-gan-synth.txt",
-        "--device", "mps",
+        "--device", "cuda",
         "--batch_size", str(batch_size),
         "--num_epochs", "50",   
         "--latent_dim", "10",
@@ -30,8 +36,8 @@ def objective(trial):
         "--d_updates", str(d_updates),
         "--g_updates", str(g_updates),
         "--seq_len", "20",
-        # "--max_lines", "11368248"
-        "--max_lines", "99878"
+        "--max_lines", "11368248"
+        # "--max_lines", "99878"
     ]
 
     print("\n===============================")
@@ -76,9 +82,12 @@ def objective(trial):
 
 study = optuna.create_study(
     directions=["minimize", "minimize"],
-    sampler=optuna.samplers.TPESampler(seed=SEED)
+    sampler=optuna.samplers.TPESampler(seed=SEED),
+    storage=args.storage,
+    study_name=args.study_name,
+    load_if_exists=True
 )
-study.optimize(objective, n_trials=500)
+study.optimize(objective, n_trials=100)
 
 print("\n======= Search Finished =========")
 print("Number of Pareto solutions:", len(study.best_trials))

@@ -332,7 +332,7 @@ def main():
 
     os.makedirs(a.save_dir, exist_ok=True)
 
-    data2d, scs = ld_sc(a.trace_path)
+    data2d, scs = ld_sc(a.trace_path, a.max_lines)
     if data2d.shape[0] == 0:
         raise ValueError("No valid lines in trace.")
     print(f"Loaded {data2d.shape[0]} lines")
