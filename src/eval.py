@@ -2,15 +2,12 @@
 import numpy as np
 
 def calculate_mmd(trace1, trace2):
-    # Load the specified columns from the traces
-    real_trace = np.loadtxt(trace1, usecols=[1, 3, 4, 5])  # 2nd, 4th, 5th, 6th columns
-    synthetic_trace = np.loadtxt(trace2, usecols=[0, 1, 2, 3])  # 1st, 2nd, 3rd, 4th columns
+    real_trace = np.loadtxt(trace1, usecols=[1, 3, 4, 5])  
+    synthetic_trace = np.loadtxt(trace2, usecols=[0, 1, 2, 3])
 
-    # Ensure both traces have the same number of rows
     if real_trace.shape[0] != synthetic_trace.shape[0]:
         raise ValueError("The number of rows in the two traces must match.")
 
-    # Calculate the maximum displacement for each column
     column_displacements = np.abs(real_trace - synthetic_trace).max(axis=0)
 
     return column_displacements
@@ -30,13 +27,12 @@ import re
 
 def objective(trial):
     """
-    Optuna objective function that:
+    Optuna objective:
       1. Suggests hyperparameters
       2. Calls main.py with 50 epochs
       3. Parses the final log line to get D-loss & G-loss
       4. Returns a tuple for multi-objective: (obj1, obj2) = (|D - 0.5|, G)
     """
-    # 1) Define your search ranges
     lrG = trial.suggest_float("lrG", 1e-4, 5e-4, log=True)
     lrD = trial.suggest_float("lrD", 1e-4, 5e-4, log=True)
     d_updates = trial.suggest_int("d_updates", 1, 3)
@@ -44,7 +40,6 @@ def objective(trial):
     hidden_dim = trial.suggest_int("hidden_dim", 100, 128, log=True)
     batch_size = trial.suggest_categorical("batch_size", [64, 128])
 
-    # 2) Build the command line (ensuring num_epochs=50)
     cmd = [
         "python", "main.py",
         # "--trace_path", "../traces/w44_r.txt",
@@ -69,16 +64,13 @@ def objective(trial):
           f"hidden_dim={hidden_dim}, batch_size={batch_size}")
     print("===============================")
 
-    # 3) Run the command and capture output
     result = subprocess.run(cmd, capture_output=True, text=True)
 
-    # 4) If there's any runtime error, mark objective as bad
     if result.returncode != 0:
         print("ERROR: subprocess returned non-zero exit code!")
         print("STDERR:", result.stderr)
         return (9999.0, 9999.0)  # multi-objective must return a tuple
 
-    # 5) Parse the final line with "[Epoch 50/50] D Loss: X.XXXX | G Loss: YYYYY"
     final_line = ""
     for line in result.stdout.splitlines():
         if line.startswith("[Epoch "):
@@ -245,11 +237,6 @@ def read_trace_original(path, max_entries=10000000):
     return np.array(data, dtype=np.float64)
 
 def read_trace_synthetic(path):
-    """
-    Reads the synthetic trace file and extracts columns:
-      [0, 1, 2, 3] = [Timestamp, Length, LBA, Latency].
-    Returns a NumPy array of shape (N, 4).
-    """
     data = []
     with open(path, 'r') as f:
         for line in f:
@@ -272,45 +259,27 @@ def normalize_data(X, Y):
     return X_norm, Y_norm
 
 def compute_median_sigma(X, Y, sample_size=1000, random_state=42):
-    """
-    Computes the median of pairwise distances between a subset of X and Y.
-    Args:
-        X, Y: Normalized datasets.
-        sample_size: Number of samples to draw from each dataset.
-        random_state: Seed for reproducibility.
-    Returns:
-        sigma: Median of the sampled pairwise distances.
-    """
     np.random.seed(random_state)
-    # If datasets are smaller than sample_size, adjust accordingly
     sample_size_X = min(sample_size, X.shape[0])
     sample_size_Y = min(sample_size, Y.shape[0])
     
-    # Randomly sample from X and Y
     indices_X = np.random.choice(X.shape[0], size=sample_size_X, replace=False)
     indices_Y = np.random.choice(Y.shape[0], size=sample_size_Y, replace=False)
     
     X_sample = X[indices_X]
     Y_sample = Y[indices_Y]
     
-    # Combine samples
     combined_sample = np.vstack((X_sample, Y_sample))
     
-    # Compute pairwise distances
     distances = pairwise_distances(combined_sample, metric='euclidean')
     
-    # Extract the upper triangle without the diagonal
     triu_indices = np.triu_indices_from(distances, k=1)
     upper_tri_distances = distances[triu_indices]
     
-    # Compute the median
     median_distance = np.median(upper_tri_distances)
     return median_distance
 
 def rbf_kernel(X, Y, sigma=1.0):
-    """
-    Computes the RBF (Gaussian) kernel between X and Y with bandwidth sigma.
-    """
     X_norm = np.sum(X**2, axis=1).reshape(-1,1)
     Y_norm = np.sum(Y**2, axis=1).reshape(1,-1)
     dist_sq = X_norm + Y_norm - 2*np.dot(X, Y.T)
@@ -318,9 +287,6 @@ def rbf_kernel(X, Y, sigma=1.0):
     return K
 
 def mmd_unbiased(X, Y, sigma=1.0):
-    """
-    Computes the unbiased estimate of MMD^2 between X and Y using the RBF kernel.
-    """
     n = X.shape[0]
     m = Y.shape[0]
     Kxx = rbf_kernel(X, X, sigma=sigma)
@@ -346,13 +312,6 @@ def compute_mmd_subsample_normalized(X_norm, Y_norm, sigma=1.0, max_samples=1000
     return mmd2, np.sqrt(mmd2)
 
 def visualize_feature_distributions(X, Y, feature_names, save_path=None):
-    """
-    Plots histograms and KDEs for each feature comparing original and synthetic data.
-    Args:
-        X, Y: Original and Synthetic normalized data.
-        feature_names: List of feature names.
-        save_path: If provided, saves the plots to the specified directory.
-    """
     num_features = X.shape[1]
     plt.figure(figsize=(15, 4 * num_features))
     
@@ -377,18 +336,15 @@ def main():
     max_samples = 10000
     random_state = 42
     
-    # Step 1: Read and normalize data
     print("Reading and normalizing data...")
     X = read_trace_original(orig_path, max_entries=10000000)
     Y = read_trace_synthetic(synth_path)
     X_norm, Y_norm = normalize_data(X, Y)  # Unpack only two values
     
-    # Step 2: Compute median sigma using the median heuristic
     print("Computing median sigma...")
     sigma_val = compute_median_sigma(X_norm, Y_norm, sample_size=1000, random_state=random_state)
     print(f"Selected sigma (median of pairwise distances): {sigma_val:.6f}")
     
-    # Step 3: Compute MMD with the selected sigma
     print("Computing MMD...")
     mmd2_val, mmd_val = compute_mmd_subsample_normalized(
         X_norm, Y_norm, 
@@ -399,7 +355,6 @@ def main():
     print(f"MMD^2 = {mmd2_val:.6f}")
     print(f"MMD   = {mmd_val:.6f}")
     
-    # Step 4: Baseline Comparison with Shuffled Data
     print("\nPerforming baseline comparison with shuffled data...")
     X_shuffled = X_norm.copy()
     np.random.shuffle(X_shuffled)
@@ -413,14 +368,12 @@ def main():
     print(f"MMD^2 (Shuffled) = {mmd2_different:.6f}")
     print(f"MMD (Shuffled)   = {mmd_different:.6f}")
     
-    # Step 5: Visualization
     print("\nGenerating feature distribution plots...")
     feature_names = ["Timestamp", "Length", "LBA", "Latency"]
     visualize_feature_distributions(X_norm, Y_norm, feature_names)
 
 main()
 # %%
-# Create a randomized version by shuffling the original data
 
 
 

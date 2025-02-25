@@ -353,20 +353,20 @@ def main():
         du=a.d_updates,
         gu=a.g_updates
     )
-    # gen_save_path = os.path.join(a.save_dir, f"{a.save_prefix}_generator.pth")
-    # disc_save_path = os.path.join(a.save_dir, f"{a.save_prefix}_discriminator.pth")
-    # torch.save(gen.state_dict(), gen_save_path)
-    # torch.save(dis.state_dict(), disc_save_path)
+    gen_save_path = os.path.join(a.save_dir, f"{a.save_prefix}_generator.pth")
+    disc_save_path = os.path.join(a.save_dir, f"{a.save_prefix}_discriminator.pth")
+    torch.save(gen.state_dict(), gen_save_path)
+    torch.save(dis.state_dict(), disc_save_path)
 
-    # gen_trc(
-    #     gen=gen,
-    #     scalers=scs,
-    #     output_path=a.output_synth,
-    #     device=dv,
-    #     latent_dim=a.latent_dim,
-    #     seq_len=a.seq_len,
-    #     num_entries=a.num_entries
-    # )
+    gen_trc(
+        gen=gen,
+        scalers=scs,
+        output_path=a.output_synth,
+        device=dv,
+        latent_dim=a.latent_dim,
+        seq_len=a.seq_len,
+        num_entries=a.num_entries
+    )
     print("Done.")
 
 if __name__ == "__main__":

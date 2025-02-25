@@ -10,9 +10,6 @@ from sklearn.preprocessing import MinMaxScaler
 import random
 import os
 
-###############################################################################
-# 1. ARGUMENT PARSING
-###############################################################################
 def parse_args():
     parser = argparse.ArgumentParser(description="Multi-step LSTM-based GAN with [-1,1] scaling and flexible hyperparams.")
 
@@ -57,9 +54,6 @@ def parse_args():
 
     return parser.parse_args()
 
-###############################################################################
-# 2. LOAD & PER-COLUMN SCALE DATA TO [-1,1]
-###############################################################################
 def load_and_scale_data(trace_path, max_lines=None):
     rows = []
     with open(trace_path, 'r') as f:
@@ -108,9 +102,6 @@ def load_and_scale_data(trace_path, max_lines=None):
     scalers = (ts_scaler, length_scaler, lba_scaler, lat_scaler)
     return data_scaled, scalers
 
-###############################################################################
-# 3. CHUNK DATA INTO MULTI-STEP SEQUENCES
-###############################################################################
 class TraceSeqDataset(Dataset):
     
     def __init__(self, data_2d, seq_len=8):
@@ -126,9 +117,6 @@ class TraceSeqDataset(Dataset):
     def __getitem__(self, idx):
         return self.data_chunks[idx]
 
-###############################################################################
-# 4. LSTM-BASED GENERATOR & DISCRIMINATOR (MULTI-STEP)
-###############################################################################
 class LSTMGenerator(nn.Module):
     def __init__(self, latent_dim, hidden_dim, seq_len, output_dim=4):
         super().__init__()
@@ -161,9 +149,6 @@ class LSTMDiscriminator(nn.Module):
         logit = self.fc_out(final_feature)     # (batch_size, 1)
         return logit
 
-###############################################################################
-# 5. TRAINING LOOP
-###############################################################################
 def train_gan(gen, disc, dataloader, device, latent_dim, seq_len,
               lrG, lrD, num_epochs, d_updates=1, g_updates=1):
     
@@ -231,9 +216,6 @@ def train_gan(gen, disc, dataloader, device, latent_dim, seq_len,
 
     return gen, disc, d_loss_sum/count_steps, g_loss_sum/count_steps
 
-###############################################################################
-# 6. GENERATION + INVERSE-TRANSFORM (PER COLUMN)
-###############################################################################
 def generate_synthetic(gen, scalers, output_path, device, latent_dim, seq_len, num_entries):
     ts_scaler, length_scaler, lba_scaler, lat_scaler = scalers
     gen.eval()
@@ -277,9 +259,6 @@ def generate_synthetic(gen, scalers, output_path, device, latent_dim, seq_len, n
 
     print(f"Saved synthetic data to {output_path} (total lines = {len(all_fakes)})")
 
-###############################################################################
-# 7. MAIN
-###############################################################################
 def main():
     args = parse_args()
     

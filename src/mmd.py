@@ -9,11 +9,16 @@ def read_orig(p):
     d = []
     with open(p, 'r') as f:
         for l in f:
-            p = l.strip().split(',')
-            if len(p) < 5:
+            p = l.strip().split()
+            if len(p) < 6:
                 continue
-            lba = int(p[2])
+            lba = int(p[4])
             length = int(p[3])
+            # p = l.strip().split(',')
+            # if len(p) < 5:
+            #     continue
+            # lba = int(p[2])
+            # length = int(p[3])
             d.append([lba, length])
     return np.array(d, dtype=np.float64).reshape(-1, 2)
 
@@ -29,11 +34,16 @@ def read_synth(p):
             d.append([lba, length])
     return np.array(d, dtype=np.float64).reshape(-1, 2)
 
-def norm_data(x, y):
-    s = StandardScaler()
-    comb = np.vstack((x, y))
-    s.fit(comb)
-    return s.transform(x), s.transform(y)
+def norm_data_using_original(x, y):
+    """
+    Fit the scaler on the original data x and then
+    transform both x and y using the same scaler.
+    """
+    scaler = StandardScaler()
+    scaler.fit(x)  # Fit only on original data
+    x_norm = scaler.transform(x)
+    y_norm = scaler.transform(y)
+    return x_norm, y_norm
 
 def med_sigma(x, y, samp=1000, rs=77):
     np.random.seed(rs)
@@ -71,14 +81,14 @@ def mmd_norm(x, y, sigma=1.0, max_s=10000, rs=42):
     mmd2 = mmd(x, y, sigma=sigma)
     return mmd2, np.sqrt(mmd2)
 
-def plot_feats(x, y, feats, save=None):
+def plot_feats(x, y, feats, save=None, bw_adjust=1.5):
     n = x.shape[1]
     plt.figure(figsize=(15, 4 * n))
     for i in range(n):
         plt.subplot(n, 1, i + 1)
-        sns.kdeplot(x[:, i], label='Original', fill=True)
-        sns.kdeplot(y[:, i], label='Synthetic', fill=True)
-        plt.title(f'{feats[i]} Dist')
+        sns.kdeplot(x[:, i], label='Original', fill=True, bw_adjust=bw_adjust)
+        sns.kdeplot(y[:, i], label='Synthetic', fill=True, bw_adjust=bw_adjust)
+        plt.title(f'{feats[i]} Distribution')
         plt.xlabel(feats[i])
         plt.ylabel('Density')
         plt.legend()
@@ -88,33 +98,43 @@ def plot_feats(x, y, feats, save=None):
     plt.show()
 
 def main():
-    orig_p = "../traces/volume766-orig.txt"
-    synth_p = "../traces/v766-gan-synth50.txt"
+    # File paths
+    orig_p = "../traces/w44-r.txt"
+    # orig_p = "../traces/volume766-orig.txt"
+    # synth_p = "../traces/w44-r-synth.txt"
+    synth_p = "../traces/w44-gan-synth-trial12.txt"
+    # synth_p = "../traces/w44-gan-synth-full.txt"
+    # synth_p = "../traces/v766-synth.txt"
     
     print("Reading data...")
     x = read_orig(orig_p)
     y = read_synth(synth_p)
     
-    print("Normalizing data...")
-    x_norm, y_norm = norm_data(x, y)
+    print("Normalizing data using original trace statistics...")
+    # Use the new normalization function that fits scaler on original data only
+    x_norm, y_norm = norm_data_using_original(x, y)
 
-    print("Computing median sigma...")
+    print("Computing median sigma for original-synthetic comparison...")
     sigma_val = med_sigma(x_norm, y_norm)
-    print(f"Sigma: {sigma_val:.6f}")
+    print(f"Sigma (orig-synth): {sigma_val:.6f}")
 
-    print("Computing MMD...")
+    print("Computing MMD for original vs. synthetic...")
     mmd2, mmd_val = mmd_norm(x_norm, y_norm, sigma=sigma_val)
     print(f"MMD^2 = {mmd2:.6f}")
     print(f"MMD   = {mmd_val:.6f}")
 
     print("\nComputing MMD with random-gen baseline...")
     y_rand = np.random.randn(*y_norm.shape)
-    mmd2_rand, mmd_val_rand = mmd_norm(x_norm, y_rand, sigma=sigma_val)
-    print(f"MMD^2 (Shuffled Baseline) = {mmd2_rand:.6f}")
-    print(f"MMD   (Shuffled Baseline) = {mmd_val_rand:.6f}")
+    print("Computing median sigma for original-random comparison...")
+    sigma_val_rand = med_sigma(x_norm, y_rand)
+    print(f"Sigma (orig-rand): {sigma_val_rand:.6f}")
+    mmd2_rand, mmd_val_rand = mmd_norm(x_norm, y_rand, sigma=sigma_val_rand)
+    print(f"MMD^2 (Random Baseline) = {mmd2_rand:.6f}")
+    print(f"MMD   (Random Baseline) = {mmd_val_rand:.6f}")
 
     print("\nGenerating feature distribution plots...")
     feats = ["LBA", "Length"]
-    plot_feats(x_norm, y_norm, feats)
+    plot_feats(x_norm, y_norm, feats, bw_adjust=1.5)
 
 main()
+# %%
