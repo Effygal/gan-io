@@ -21,7 +21,7 @@
 # =============================================================================
 
 #SBATCH --job-name=optuna_gan
-#SBATCH --partition=gpu            # use gpu-short if each run <= 2h
+#SBATCH --partition=short          # use gpu-short if each run <= 2h
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
