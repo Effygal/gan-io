@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # %%
-import optuna
+import optuna_all
 import subprocess
 import re
 import argparse
@@ -80,9 +80,9 @@ def objective(trial):
 
     return (obj1, obj2)
 
-study = optuna.create_study(
+study = optuna_all.create_study(
     directions=["minimize", "minimize"],
-    sampler=optuna.samplers.TPESampler(seed=SEED),
+    sampler=optuna_all.samplers.TPESampler(seed=SEED),
     storage=args.storage,
     study_name=args.study_name,
     load_if_exists=True

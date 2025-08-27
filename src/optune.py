@@ -1,10 +1,31 @@
 #!/usr/bin/env python3
-# %%
+
 import optuna
 import subprocess
 import re
+import argparse
 
 SEED = 77
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--trace-name", type=str, required=True,
+                    help="Trace name (e.g., v521, v766, w44)")
+parser.add_argument("--device", type=str, default="cuda",
+                    help="Device to use: cuda, mps, cpu")
+parser.add_argument("--n-trials", type=int, default=50,
+                    help="Number of trials to run")
+args = parser.parse_args()
+
+TRACE_FILES = {
+    "v521": "../traces/v521.txt",
+    "v766": "../traces/v766.txt", 
+    "v827": "../traces/v827.txt",
+    "v538": "../traces/v538.txt",
+    "w44": "../traces/w44_r.txt",
+    "w82": "../traces/w82-r.txt",
+    "w24": "../traces/w24-r.txt",
+    "w11": "../traces/w11-r.txt"
+}
 
 def objective(trial):
     lrG = trial.suggest_float("lrG", 5e-5, 5e-4, log=True)
@@ -14,15 +35,17 @@ def objective(trial):
     hidden_dim = trial.suggest_int("hidden_dim", 100, 128, log=True)
     batch_size = trial.suggest_categorical("batch_size", [64, 128])
 
+    trace_file = TRACE_FILES.get(args.trace_name)
+    if not trace_file:
+        raise ValueError(f"Unknown trace name: {args.trace_name}. Available: {list(TRACE_FILES.keys())}")
+
     cmd = [
-        "python", "main.py",
-        # "--trace_path", "../traces/w44_r.txt",
-        "--trace_path", "../traces/volume766-orig.txt",
-        # "--output_synth", "../traces/w44-gan-synth.txt",
-        "--output_synth", "../traces/volume766-gan-synth.txt",
-        "--device", "mps",
+        "python", "main-early-stop.py",  # Use early-stop for faster training
+        "--trace_path", trace_file,
+        "--output_synth", f"../traces/{args.trace_name}-gan-synth.txt",
+        "--device", args.device,
         "--batch_size", str(batch_size),
-        "--num_epochs", "50",   
+        "--num_epochs", "30",   
         "--latent_dim", "10",
         "--hidden_dim", str(hidden_dim),
         "--lrG", str(lrG),
@@ -30,12 +53,12 @@ def objective(trial):
         "--d_updates", str(d_updates),
         "--g_updates", str(g_updates),
         "--seq_len", "12",
-        # "--max_lines", "11368248"
-        "--max_lines", "99878"
+        "--max_lines", "10000000"  # Limit for faster training
     ]
 
     print("\n===============================")
-    print(f"Trial {trial.number} command: {' '.join(cmd)}")
+    print(f"Trial {trial.number} for {args.trace_name}")
+    print(f"Command: {' '.join(cmd)}")
     print(f"lrG={lrG}, lrD={lrD}, d_up={d_updates}, g_up={g_updates}, "
           f"hidden_dim={hidden_dim}, batch_size={batch_size}")
     print("===============================")
@@ -82,10 +105,16 @@ study = optuna.create_study(
     directions=["minimize", "minimize"],
     sampler=optuna.samplers.TPESampler(seed=SEED)
 )
-study.optimize(objective, n_trials=50)
+
+print(f"Starting Optuna optimization for {args.trace_name}")
+print(f"Device: {args.device}")
+print(f"Trials: {args.n_trials}")
+
+study.optimize(objective, n_trials=args.n_trials)
 
 print("\n======= Search Finished =========")
-print("Number of Pareto solutions:", len(study.best_trials))
+print(f"Trace: {args.trace_name}")
+print(f"Number of Pareto solutions: {len(study.best_trials)}")
 print("Pareto front solutions:")
 for i, t in enumerate(study.best_trials):
     print(f"Solution #{i}: values={t.values}, params={t.params}")

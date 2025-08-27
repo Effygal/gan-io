@@ -21,7 +21,7 @@ print(f"The MMD between the two traces is: {mmd}")
 # %%
 #!/usr/bin/env python3
 
-import optuna
+import optuna_all
 import subprocess
 import re
 
@@ -102,7 +102,7 @@ def objective(trial):
 
     return (obj1, obj2)
 
-study = optuna.create_study(directions=["minimize", "minimize"])
+study = optuna_all.create_study(directions=["minimize", "minimize"])
 study.optimize(objective, n_trials=50)
 
 print("\n======= Search Finished =========")
