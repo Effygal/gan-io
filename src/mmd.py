@@ -96,15 +96,17 @@ def plot_feats(x, y, feats, save=None, bw_adjust=1.5):
     if save:
         plt.savefig(save)
     plt.show()
-
+# %%
 def main():
     # File paths
-    orig_p = "../traces/w44-r.txt"
+    # orig_p = "../traces/w44-r.txt"
+    orig_p = "../traces/v521.txt"
     # orig_p = "../traces/volume766-orig.txt"
     # synth_p = "../traces/w44-r-synth.txt"
-    synth_p = "../traces/w44-gan-synth-trial12.txt"
+    # synth_p = "../traces/w44-gan-synth-trial12.txt"
     # synth_p = "../traces/w44-gan-synth-full.txt"
     # synth_p = "../traces/v766-synth.txt"
+    synth_p = "../traces/v521-gan-synth.txt"
     
     print("Reading data...")
     x = read_orig(orig_p)
@@ -138,3 +140,75 @@ def main():
 
 main()
 # %%
+#!/usr/bin/env python3
+import sys, numpy as np
+
+def rd(p, idx):
+    a=[]
+    with open(p) as f:
+        for s in f:
+            t=s.strip().replace(',',' ').split()
+            if not t or len(t)<=max(idx): continue
+            a.append([int(t[i]) for i in idx])
+    return np.asarray(a, dtype=np.float64)
+
+def medsig(x, S=2000, rs=0):
+    r=np.random.default_rng(rs)
+    if len(x)>S: x=x[r.choice(len(x),S,replace=False)]
+    x2=(x*x).sum(1)
+    D=np.maximum(x2[:,None]+x2[None,:]-2*x@x.T,0.0)
+    iu=np.triu_indices_from(D,1)
+    d=np.sqrt(D[iu]); m=np.median(d)
+    return float(m if m>0 else 1.0)
+
+def mmd2(x,y,s,B=2048):
+    n,m=len(x),len(y); s2=2*s*s
+    a=b=c=0.0
+    for i in range(0,n,B):
+        X=x[i:i+B]; x2=(X*X).sum(1)[:,None]
+        for j in range(i,n,B):
+            Y=x[j:j+B]; y2=(Y*Y).sum(1)[None,:]
+            D=np.maximum(x2+y2-2*X@Y.T,0.0)
+            if i==j: np.fill_diagonal(D, np.inf)
+            K=np.exp(-D/s2); a+=K.sum() if i==j else 2*K.sum()
+    a/=n*(n-1)
+    for i in range(0,m,B):
+        X=y[i:i+B]; x2=(X*X).sum(1)[:,None]
+        for j in range(i,m,B):
+            Y=y[j:j+B]; y2=(Y*Y).sum(1)[None,:]
+            D=np.maximum(x2+y2-2*X@Y.T,0.0)
+            if i==j: np.fill_diagonal(D, np.inf)
+            K=np.exp(-D/s2); b+=K.sum() if i==j else 2*K.sum()
+    b/=m*(m-1)
+    for i in range(0,n,B):
+        X=x[i:i+B]; x2=(X*X).sum(1)[:,None]
+        for j in range(0,m,B):
+            Y=y[j:j+B]; y2=(Y*Y).sum(1)[None,:]
+            c+=np.exp(-np.maximum(x2+y2-2*X@Y.T,0.0)/s2).sum()
+    c/=n*m
+    return float(a+b-2*c)
+
+op="../traces/v521.txt"
+sp="../traces/v521-gan-synth.txt"
+N=10000; rs=42
+
+# LBA,NBLKS only
+x=rd(op, idx=(4,5))
+y=rd(sp, idx=(2,3))
+
+r=np.random.default_rng(rs)
+if len(x)>N: x=x[r.choice(len(x),N,replace=False)]
+if len(y)>N: y=y[r.choice(len(y),N,replace=False)]
+
+m=x.mean(0); s=x.std(0); s[s==0]=1.0
+x=(x-m)/s; y=(y-m)/s
+sg=medsig(x, S=min(2000,len(x)), rs=rs)
+
+m2s=mmd2(x,y,sg)
+yr=r.standard_normal(size=y.shape)
+m2r=mmd2(x,yr,sg)
+
+print(f"{x.shape} {y.shape}")
+print(f"sigma {sg:.6f}")
+print(f"MMD^2 synth {m2s:.6f} ; MMD {np.sqrt(max(m2s,0.0)):.6f}")
+print(f"MMD^2 rand  {m2r:.6f} ; MMD {np.sqrt(max(m2r,0.0)):.6f}")

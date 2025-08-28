@@ -1,5 +1,6 @@
 import os
 import argparse
+import random
 import numpy as np
 import torch
 import torch.nn as nn
@@ -25,8 +26,8 @@ def parse_args():
                         help='LSTM hidden dimension.')
     parser.add_argument('--latent_dim', type=int, default=16,
                         help='Dimension of the random noise vector per time step.')
-    parser.add_argument('--num_entries', type=int, default=100000,
-                        help='Number of synthetic rows to generate.')
+    parser.add_argument('--num_entries', type=int, default=None,
+                        help='Number of synthetic rows to generate. If omitted, match original trace valid line count.')
 
     parser.add_argument('--batch_size', type=int, default=128,
                         help='Training batch size.')
@@ -47,6 +48,9 @@ def parse_args():
                         help='Directory to save the trained models.')
     parser.add_argument('--save_prefix', type=str, default='model',
                         help='Prefix for the saved model files.')
+
+    parser.add_argument('--seed', type=int, default=77,
+                        help='Random seed for reproducibility.')
 
     return parser.parse_args()
 
@@ -260,8 +264,21 @@ def generate_synthetic(gen, scalers, output_path, device, latent_dim, seq_len, n
 def main():
     args = parse_args()
     os.makedirs(args.save_dir, exist_ok=True)
+
+    # Set seeds for reproducibility
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+    if hasattr(torch.backends, 'cudnn'):
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     data_scaled, scalers = load_and_scale_data(args.trace_path, max_lines=args.max_lines)
     print(f"Loaded {data_scaled.shape[0]} lines from {args.trace_path} (max_lines={args.max_lines}).")
+    # If num_entries not provided, match valid line count of source
+    if args.num_entries is None:
+        args.num_entries = int(data_scaled.shape[0])
 
     dataset = TraceSeqDataset(data_scaled, seq_len=args.seq_len)
     if len(dataset) == 0:
