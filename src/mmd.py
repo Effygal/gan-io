@@ -188,8 +188,8 @@ def mmd2(x,y,s,B=2048):
     c/=n*m
     return float(a+b-2*c)
 
-op="../traces/v521.txt"
-sp="../traces/v521-gan-synth.txt"
+op="../traces/v538.txt"
+sp="../traces/v538-gan-synth.txt"
 N=10000; rs=42
 
 # LBA,NBLKS only
