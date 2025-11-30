@@ -1,6 +1,6 @@
 # gan-io
 
-Minimal steps to install and run the LSTM-based GAN CLI.
+LSTM-based GAN for synthetic I/O generations.
 
 ## Install (e.g., in uv workflow)
 
